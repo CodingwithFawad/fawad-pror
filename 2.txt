@@ -1,0 +1,85 @@
+import gradio as gr
+import cv2
+import os
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+from deepface import DeepFace
+
+# Set the directory for the reference images
+directory_path = "/content/images"
+
+# Ensure the directory exists
+os.makedirs(directory_path, exist_ok=True)
+
+# Load the reference images
+def load_reference_images(directory_path):
+    reference_directory = os.listdir(directory_path)
+    loaded_reference_images = []
+
+    for item in reference_directory:
+        item_path = os.path.join(directory_path, item)
+        if os.path.isfile(item_path):
+            reference_image = cv2.imread(item_path)
+            loaded_reference_images.append((item, reference_image))
+
+    return loaded_reference_images
+
+# Face recognition function
+def process_image(image):
+    # Convert PIL image to OpenCV format
+    image_to_compare = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    # Load reference images
+    loaded_reference_images = load_reference_images(directory_path)
+
+    # Initialize face detector
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+    # Initialize match details
+    highest_percentage = 0
+    best_match_filename = "No match found"
+
+    # Perform face recognition for each reference image
+    for item, reference_image in loaded_reference_images:
+        # Detect Faces in the image to compare
+        faces = face_cascade.detectMultiScale(image_to_compare, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+
+        # Draw Rectangles Around Detected Faces
+        for (x, y, w, h) in faces:
+            cv2.rectangle(image_to_compare, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        # Perform face recognition
+        result = DeepFace.verify(reference_image, image_to_compare)
+
+        # Check if the images match and calculate match percentage
+        if result['verified']:
+            match_percentage = 100 - (result['distance'] * 100)  # Convert distance to percentage
+            if match_percentage > highest_percentage:
+                highest_percentage = match_percentage
+                best_match_filename = item  # Update the filename of the best match
+
+    # Convert back to PIL format for Gradio
+    processed_image = Image.fromarray(cv2.cvtColor(image_to_compare, cv2.COLOR_BGR2RGB))
+
+    # Add text to the processed image
+    draw = ImageDraw.Draw(processed_image)
+    font = ImageFont.load_default()
+    text_size = draw.textsize(f"Match: {highest_percentage:.2f}% with {best_match_filename}", font=font)
+    width, height = processed_image.size
+
+    # Draw text at the bottom of the image
+    draw.text(((width - text_size[0]) / 2, height - text_size[1] - 10), f"Match: {highest_percentage:.2f}% with {best_match_filename}", fill="black", font=font)
+
+    return processed_image, f"{highest_percentage:.2f}% with {best_match_filename}"
+
+# Gradio Interface
+interface = gr.Interface(
+    fn=process_image,
+    inputs=gr.Image(type="pil"),
+    outputs=[gr.Image(type="pil"), gr.Text()],
+    title="Face Recognition Processor",
+    description="Upload an image to see if it matches any reference images and get the match percentage along with the filename.",
+)
+
+# Launch the Gradio app
+interface.launch()

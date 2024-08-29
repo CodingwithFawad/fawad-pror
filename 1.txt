@@ -1,0 +1,7 @@
+!pip install deepface
+!pip install opencv-python
+!pip install os
+!pip install gradio
+!pip install numpy
+!pip install PIL
+!pip install pandas

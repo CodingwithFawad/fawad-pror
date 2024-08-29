@@ -1,0 +1,86 @@
+import os
+import cv2
+import gradio as gr
+import numpy as np
+
+def match_fingerprint(real_image):
+    # Path to dataset folder
+    dataset_folder = "/content/Fingerprint Dataset"  # Adjust this path as needed
+
+    # Convert Gradio image input to OpenCV format
+    real_image = cv2.cvtColor(np.array(real_image), cv2.COLOR_RGB2BGR)
+
+    counter = best_score = 0
+    filename = image = kp1 = kp2 = mp = None
+
+    # Loop through all images in the dataset
+    for file in os.listdir(dataset_folder):
+        if counter % 10 == 0:
+            print("Searching through image :---> " + file)
+        counter += 1
+        fingerprint_image = cv2.imread(os.path.join(dataset_folder, file))
+
+        # Initialize SIFT detector
+        sift = cv2.SIFT_create()
+        keypoint_1, descriptor_1 = sift.detectAndCompute(real_image, None)
+        keypoint_2, descriptor_2 = sift.detectAndCompute(fingerprint_image, None)
+
+        # Match descriptors using FLANN matcher
+        matches = cv2.FlannBasedMatcher({'algorithm': 1, 'trees': 10}, {}).knnMatch(descriptor_1, descriptor_2, k=2)
+
+        match_points = []
+
+        for p, q in matches:
+            if p.distance < 0.1 * q.distance:
+                match_points.append(p)
+
+        keypoints = min(len(keypoint_1), len(keypoint_2))
+
+        # Check if the current image has a higher match percentage
+        if len(match_points) / keypoints * 100 > best_score:
+            best_score = len(match_points) / keypoints * 100
+            filename = file  # Save the filename that matches
+            image = fingerprint_image
+            kp1, kp2, mp = keypoint_1, keypoint_2, match_points
+
+    # Define a threshold for what constitutes a "match"
+    match_threshold = 15.0  # Adjust this threshold as needed
+
+    # Output the match percentage
+    match_text = f"Percentage Match: {best_score:.2f}%"
+
+    # Check if the match is above the threshold and print the result
+    if best_score >= match_threshold:
+        match_text += f"\nMatch Found! The matching file is: {filename}"
+    else:
+        match_text += "\nNo Match Found!"
+
+    # Optionally create the result image
+    if image is not None:
+        result = cv2.drawMatches(real_image, kp1, image, kp2, mp, None)
+        result = cv2.resize(result, None, fx=3, fy=3)
+        result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+    else:
+        result = None
+
+    return match_text, result
+
+# Define Gradio interface
+def main():
+    with gr.Blocks() as demo:
+        gr.Markdown("### Fingerprint Matching")
+        real_image_input = gr.Image(type="pil", label="Upload Real Fingerprint Image")
+        output_text = gr.Textbox(label="Match Result", lines=2)
+        output_image = gr.Image(type="pil", label="Matched Image (if any)")
+
+        real_image_input.change(
+            fn=match_fingerprint,
+            inputs=real_image_input,
+            outputs=[output_text, output_image]
+        )
+
+    demo.launch()
+
+if __name__ == "__main__":
+    main()
+
